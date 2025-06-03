@@ -1,52 +1,75 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.EventSystems;
 
 public class GirarCamara : MonoBehaviour
 {
-    private Gyroscope giroscopio;
-    private bool giroscopioDisponible;
+    [Header("Velocidad de giro")]
+    public float velocidadRotacion = 50f;
 
     [Header("Bloquear ejes de rotación")]
     public bool bloquearEjeX = false;
     public bool bloquearEjeY = false;
-    public bool bloquearEjeZ = false;
+
+    [Header("Porcentaje de pantalla para detectar toques en los bordes")]
+    [Range(0f, 0.5f)] public float anchoBorde = 0.2f; // 20 % a cada lado
+    [Range(0f, 0.5f)] public float altoBorde = 0.2f;  // 20 % arriba y abajo
+
+    private Quaternion rotacionInicial;
 
     void Start()
     {
-        giroscopioDisponible = SystemInfo.supportsGyroscope;
-
-        if (giroscopioDisponible)
-        {
-            giroscopio = Input.gyro;
-            giroscopio.enabled = true;
-        }
-        else
-        {
-            Debug.LogWarning("El dispositivo no tiene giroscopio.");
-        }
+        // Guardamos la rotación inicial para poder centrar después
+        rotacionInicial = transform.rotation;
     }
 
     void Update()
     {
-        if (!giroscopioDisponible) return;
+        foreach (Touch toque in Input.touches)
+        {
+            // Ignorar toque si está sobre UI (botón, panel, etc)
+            if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject(toque.fingerId))
+                continue;
 
-        // Obtener rotación del giroscopio
-        Quaternion rotacionGiroscopio = giroscopio.attitude;
-        rotacionGiroscopio = new Quaternion(
-            rotacionGiroscopio.x,
-            rotacionGiroscopio.y,
-            -rotacionGiroscopio.z,
-            -rotacionGiroscopio.w
-        );
+            Vector2 posicion = toque.position;
+            float ancho = Screen.width;
+            float alto = Screen.height;
 
-        Vector3 rotacionEuler = rotacionGiroscopio.eulerAngles;
+            bool enBordeDerecho = posicion.x > ancho * (1f - anchoBorde);
+            bool enBordeIzquierdo = posicion.x < ancho * anchoBorde;
+            bool enBordeSuperior = posicion.y > alto * (1f - altoBorde);
+            bool enBordeInferior = posicion.y < alto * altoBorde;
 
-        // Aplicar bloqueos si están activados
-        if (bloquearEjeX) rotacionEuler.x = transform.rotation.eulerAngles.x;
-        if (bloquearEjeY) rotacionEuler.y = transform.rotation.eulerAngles.y;
-        if (bloquearEjeZ) rotacionEuler.z = transform.rotation.eulerAngles.z;
+            bool estaEnBordeHorizontal = enBordeDerecho || enBordeIzquierdo;
+            bool estaEnBordeVertical = enBordeSuperior || enBordeInferior;
 
-        transform.rotation = Quaternion.Euler(rotacionEuler);
+            // Girar cámara si el dedo está en algún borde
+            if (toque.phase == TouchPhase.Stationary || toque.phase == TouchPhase.Moved)
+            {
+                Vector3 rotacion = Vector3.zero;
+
+                if (!bloquearEjeY)
+                {
+                    if (enBordeDerecho) rotacion.y = 1f;
+                    if (enBordeIzquierdo) rotacion.y = -1f;
+                }
+
+                if (!bloquearEjeX)
+                {
+                    if (enBordeSuperior) rotacion.x = -1f;
+                    if (enBordeInferior) rotacion.x = 1f;
+                }
+
+                transform.Rotate(rotacion * velocidadRotacion * Time.deltaTime, Space.Self);
+            }
+
+            // Centrar cámara si se toca el centro (fuera de bordes)
+            bool enCentro = !estaEnBordeHorizontal && !estaEnBordeVertical;
+            if (enCentro && toque.phase == TouchPhase.Began)
+            {
+                transform.rotation = rotacionInicial;
+            }
+        }
     }
 }
